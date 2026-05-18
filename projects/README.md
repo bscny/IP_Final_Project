@@ -1,6 +1,6 @@
 # Image Processing Final Project Proposal
 
-Member: 111703040 游宗諺, 110703066 王冠智
+Member: 111703040 游宗諺, 115753205 王冠智
 
 ## [Positive2Negative: Breaking the Information-Lossy Barrier in Self-Supervised Single Image Denoising](https://openaccess.thecvf.com/content/CVPR2025/papers/Li_Positive2Negative_Breaking_the_Information-Lossy_Barrier_in_Self-Supervised_Single_Image_Denoising_CVPR_2025_paper.pdf)
 
