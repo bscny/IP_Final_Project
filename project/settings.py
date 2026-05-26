@@ -1,8 +1,18 @@
+from pathlib import Path
+import torch
+
 # The following is the hyper-params used in this project
 
 # General Setting ---------------------------------------------------------------
 
-INTENSITY_INTERVAL = (0, 255)
+WEIGHTS_PATH = Path("pretrained_weights.pt")  # Adjust this according to the path
+DATA_DIR     = Path("data")
+RESULT_DIR   = Path("result")
+
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+MAX_I = 255
+MIN_I = 0
 
 # -------------------------------------------------------------------------------
 
@@ -18,7 +28,8 @@ NUM_ITERATION = 100
 SIGMA = 0.75
 
 LR = 1e-4
-GAMMA_INTERVAL = (2.0, 1.5)
+GAMMA_START = 2.0
+GAMMA_END = 1.5
 LOG_STEP = 1  # Print loss every N iterations.
 
 # -------------------------------------------------------------------------------

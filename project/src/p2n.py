@@ -25,7 +25,7 @@ def p2n_loss(pred_pos: torch.Tensor, pred_neg: torch.Tensor, gamma: float, eps: 
 # Renoised Data Construction (RDC)
 # ─────────────────────────────────────────────────────────────────────────────
 def build_renoised_pair(
-    model: nn.Module, noisy_img: torch.Tensor, sigma: float = 0.75, min_i: int = 0, max_i: int = 255
+        model: nn.Module, noisy_img: torch.Tensor, sigma: float, min_i: int, max_i: int
     ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Constructs the positive/negative noisy image pair — equations (3) - (9).
@@ -78,13 +78,13 @@ def build_renoised_pair(
 def train_p2n(
     model: nn.Module,
     dirty_img: torch.Tensor,
-    num_iterations: int = 100,
-    lr: float = 1e-4,
-    sigma: float = 0.75,
-    gamma_start: float = 2.0,
-    gamma_end: float = 1.5,
-    log_every: int = 1,
-    min_i: int = 0, max_i: int = 255
+    num_iterations: int,
+    lr: float,
+    sigma: float,
+    gamma_start: float,
+    gamma_end: float,
+    log_every: int ,
+    min_i: int , max_i: int
 ) -> torch.Tensor:
     """
     Full Positive2Negative self-supervised training loop for a *single* image.
