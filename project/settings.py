@@ -11,7 +11,7 @@ RESULT_DIR   = Path("result")
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-MAX_I = 255
+MAX_I = 1
 MIN_I = 0
 
 # -------------------------------------------------------------------------------
