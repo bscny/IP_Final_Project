@@ -6,7 +6,7 @@ from torchinfo import summary
 class Noise2NoiseUNet(nn.Module):
     # Helpers
     def _init_weights(self) -> None:
-        for module in self.modules():
+        for name, module in self.named_modules():
             if isinstance(module, nn.Conv2d):
                 # The final layer in the paper is linear, which expects a gain of 1.0.
                 if name == "dec_conv1c":
