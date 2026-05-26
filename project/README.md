@@ -35,7 +35,7 @@ The objective of this project is to reproduce and evaluate the Positive2Negative
 8. repeat step `5` ~ `7` for 100 iterations
 9. Finally, run `Y` on inference mode to get the "fine-tuned" denoised image
 
-The `Y` will be all the image in [SIDD](https://www.kaggle.com/datasets/rajat95gupta/smartphone-image-denoising-dataset), [CC](https://huggingface.co/datasets/common-canvas/commoncatalog-cc-by), [PolyU](https://opendatalab.com/OpenDataLab/PolyU_Dataset), and [FMDD](https://opendatalab.com/OpenDataLab/FMD) evaluation datasets (using PSNR benchmark).
+The `Y` will be all the image in [SIDD](https://www.kaggle.com/datasets/rajat95gupta/smartphone-image-denoising-dataset), [CC (subset)](https://github.com/csjunxu/MCWNNM-ICCV2017/tree/master), and [PolyU](https://github.com/csjunxu/PolyU-Real-World-Noisy-Images-Dataset) evaluation datasets (using PSNR benchmark).
 
 ## Prerequisite Knowledge
 
