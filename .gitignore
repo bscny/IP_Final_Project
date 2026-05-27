@@ -4,5 +4,6 @@ wandb
 
 test*
 data
+images
 
 .env

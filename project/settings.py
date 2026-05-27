@@ -5,6 +5,9 @@ import torch
 
 # General Setting ---------------------------------------------------------------
 
+WANDB_PROJECT = "Positive2Negative"
+WANDB_FINETUNE_RUN = "SSL-ver1"
+
 WEIGHTS_PATH = Path("pretrained_weights.pt")  # Adjust this according to the path
 DATA_DIR     = Path("data")
 RESULT_DIR   = Path("result")

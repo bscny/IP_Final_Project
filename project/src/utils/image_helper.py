@@ -7,7 +7,8 @@ import torchvision.transforms.functional as TF
 
 def compute_psnr(pred: torch.Tensor, target: torch.Tensor, min_i: float, max_i: float) -> float:
     """Calculates PSNR in dB. Assumes float tensors in range [min_i, max_i]."""
-    pred = pred.clamp(min_i, max_i)  # Ensure bounds before metric calculation
+    pred = pred.clamp(min_i, max_i)      # Ensure bounds before metric calculation
+    target = target.clamp(min_i, max_i)  # Ensure bounds before metric calculation
     mse = ((pred - target) ** 2).mean().item()
     if mse == 0:
         return float("inf")
