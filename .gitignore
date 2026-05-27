@@ -1,9 +1,10 @@
 venv
 __pycache__
 wandb
-
 test*
 data
-images
-
 .env
+uv.lock
+images
+project/unet_pretrain/checkpoints
+unet_pretrain.pt
