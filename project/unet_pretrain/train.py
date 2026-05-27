@@ -20,9 +20,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+# Custom Modules
 import settings
 from src.unet import Noise2NoiseUNet
-
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
 
@@ -43,6 +43,7 @@ class TrainConfig:
     num_workers: int
     seed: int
     save_every: int
+    use_padding: bool  # the padding toggle
 
 
 def list_images(root: Path) -> list[Path]:
@@ -59,14 +60,20 @@ def list_images(root: Path) -> list[Path]:
     return paths
 
 
-# trasform RGB[0, 255] to [0, 1] tensor 
+# trasform RGB[0, 255] to [MIN_I, MAX_I] tensor 
 def load_rgb_tensor(path: Path) -> torch.Tensor:
     img = Image.open(path).convert("RGB")
+    # Normalize to [0, 1] first
     arr = np.asarray(img, dtype=np.float32) / 255.0
+    
+    # Scale and shift to the target range [MIN_I, MAX_I]
+    data_range = settings.MAX_I - settings.MIN_I
+    arr = (arr * data_range) + settings.MIN_I
+    
     return torch.from_numpy(arr).permute(2, 0, 1).contiguous()
 
 
-# if image < 256*256, pad the margin
+# if image < target padded size, pad the margin
 def pad_if_needed(tensor: torch.Tensor, min_h: int, min_w: int) -> torch.Tensor:
     _, h, w = tensor.shape
     pad_h = max(min_h - h, 0)
@@ -104,6 +111,25 @@ def crop_pair(
     )
 
 
+# Dynamic Batch Padding Collate Function
+def pad_collate_fn(batch: list[tuple[torch.Tensor, torch.Tensor]]) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Dynamically pads a batch of arbitrarily sized images to the max 
+    dimension found in the batch, rounded up to the nearest multiple of 32.
+    """
+    max_h = max(item[0].shape[1] for item in batch)
+    max_w = max(item[0].shape[2] for item in batch)
+    
+    # Round up to nearest multiple of 32 for U-Net compatibility
+    target_h = (max_h + 31) // 32 * 32
+    target_w = (max_w + 31) // 32 * 32
+    
+    noisy_padded = [pad_if_needed(n, target_h, target_w) for n, _ in batch]
+    clean_padded = [pad_if_needed(c, target_h, target_w) for _, c in batch]
+    
+    return torch.stack(noisy_padded), torch.stack(clean_padded)
+
+
 class DIV2KDenoisingDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
     def __init__(
         self,
@@ -111,20 +137,33 @@ class DIV2KDenoisingDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
         crop_size: int,
         noise_sigma: float,
         random_crop: bool,
+        use_padding: bool = False, # toggle parameter
     ) -> None:
         self.clean_paths = list(clean_paths)
         self.crop_size = crop_size
         self.noise_sigma = noise_sigma
         self.random_crop = random_crop
+        self.use_padding = use_padding
 
     def __len__(self) -> int:
         return len(self.clean_paths)
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
         clean = load_rgb_tensor(self.clean_paths[index])
-        noisy = clean + torch.randn_like(clean) * (self.noise_sigma / 255.0) # 0.1
-        noisy = noisy.clamp(0.0, 1.0) # restrict the noise
-        noisy, clean = crop_pair(noisy, clean, self.crop_size, self.random_crop)
+    
+        # Scale the noise_sigma (0-255 scale) to your custom dynamic range
+        range_scale = (settings.MAX_I - settings.MIN_I) / 255.0
+        scaled_sigma = self.noise_sigma * range_scale
+        
+        noisy = clean + torch.randn_like(clean) * scaled_sigma
+        
+        # Clamp the noise to the new min/max bounds
+        noisy = noisy.clamp(settings.MIN_I, settings.MAX_I) 
+        
+        # Bypass crop if using the padding method
+        if not self.use_padding:
+            noisy, clean = crop_pair(noisy, clean, self.crop_size, self.random_crop)
+        
         return noisy, clean
 
 
@@ -155,13 +194,17 @@ def split_train_val(
 def compute_psnr_from_mse(mse: float) -> float:
     if mse <= 0:
         return float("inf")
-    return 10.0 * math.log10(1.0 / mse)
+    # Calculate the dynamic range (R)
+    dynamic_range = settings.MAX_I - settings.MIN_I
+    
+    # Standard PSNR formula using the squared dynamic range
+    return 10.0 * math.log10((dynamic_range ** 2) / mse)
 
 
 def worker_init_fn(worker_id: int) -> None:
     seed = torch.initial_seed() % 2**32
-    random.seed(seed + worker_id)
-    np.random.seed(seed + worker_id)
+    random.seed((seed + worker_id) % (2**32))
+    np.random.seed((seed + worker_id) % (2**32))
 
 
 def run_epoch(
@@ -248,6 +291,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=settings.SEED)
     parser.add_argument("--save-every", type=int, default=settings.SAVE_EVERY)
     parser.add_argument("--log-every", type=int, default=settings.LOG_EVERY)
+    
+    # Add toggle to switch between padding and cropping
+    parser.add_argument("--use-padding", action="store_true", default=settings.USE_PADDING, help="Pad dynamically to multiple of 32 instead of cropping.")
+    
     parser.add_argument("--wandb", action="store_true", help="Log training metrics to Weights & Biases.")
     parser.add_argument("--wandb-project", default="ip-final-project")
     parser.add_argument("--wandb-run-name", default=None)
@@ -277,7 +324,7 @@ def init_wandb(args: argparse.Namespace, config: TrainConfig):
 
 def main() -> None:
     args = parse_args()
-    if args.crop_size > 0 and args.crop_size % 32 != 0:
+    if not args.use_padding and args.crop_size > 0 and args.crop_size % 32 != 0:
         raise ValueError("--crop-size must be divisible by 32 for the current U-Net")
 
     random.seed(args.seed)
@@ -311,6 +358,7 @@ def main() -> None:
         num_workers=args.num_workers,
         seed=args.seed,
         save_every=args.save_every,
+        use_padding=args.use_padding, # Log the state of padding
     )
 
     print(json.dumps(asdict(config), indent=2), flush=True)
@@ -322,13 +370,18 @@ def main() -> None:
         crop_size=args.crop_size,
         noise_sigma=args.noise_sigma,
         random_crop=True,
+        use_padding=args.use_padding, 
     )
     val_dataset = DIV2KDenoisingDataset(
         val_clean,
         crop_size=args.crop_size,
         noise_sigma=args.noise_sigma,
         random_crop=False,
+        use_padding=args.use_padding,
     ) if val_clean else None
+
+    # Conditionally attach the custom collate_fn
+    collate_fn = pad_collate_fn if args.use_padding else None
 
     generator = torch.Generator()
     generator.manual_seed(args.seed)
@@ -340,6 +393,7 @@ def main() -> None:
         pin_memory=torch.cuda.is_available(),
         worker_init_fn=worker_init_fn,
         generator=generator,
+        collate_fn=collate_fn, # Apply custom batching
     )
     val_loader = DataLoader(
         val_dataset,
@@ -348,14 +402,16 @@ def main() -> None:
         num_workers=args.num_workers,
         pin_memory=torch.cuda.is_available(),
         worker_init_fn=worker_init_fn,
+        collate_fn=collate_fn, # Apply custom batching
     ) if val_dataset is not None else None
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = settings.DEVICE
     model = Noise2NoiseUNet().to(device)
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=args.lr,
+        betas=(0.9, 0.99),
         weight_decay=args.weight_decay,
     )
 
