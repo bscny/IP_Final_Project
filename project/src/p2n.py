@@ -1,6 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from typing import Tuple, List
+
+# Custom Modules
+from src.utils.image_helper import compute_psnr, unpad
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Denoised Consistency Supervision (DCS)
@@ -78,6 +82,8 @@ def build_renoised_pair(
 def train_p2n(
     model: nn.Module,
     dirty_img: torch.Tensor,
+    gt_img: torch.Tensor,
+    pad_hw: Tuple[int, int],
     num_iterations: int,
     lr: float,
     sigma: float,
@@ -85,7 +91,7 @@ def train_p2n(
     gamma_end: float,
     log_every: int ,
     min_i: int , max_i: int
-) -> torch.Tensor:
+) -> Tuple[torch.Tensor, List[int], List[float], List[float]]:
     """
     Full Positive2Negative self-supervised training loop for a *single* image.
 
@@ -103,11 +109,18 @@ def train_p2n(
         log_every      : Print loss every N iterations.
 
     Returns:
-        denoised : The final denoised image tensor (1, C, H, W), detached,
-                   clipped to [min_i, max_i], on the same device as `dirty_img`.
+        denoised     : The final denoised image tensor (1, C, H, W), detached,
+                       clipped to [min_i, max_i], on the same device as `dirty_img`.
+        step_history : The step according to log_every
+        loss_history : The loss according to log_every
+        psnr_history : The psnr according to log_every
     """
     model.train()
     optimizer = optim.AdamW(model.parameters(), lr=lr)
+
+    step_history = []
+    loss_history = []
+    psnr_history = []
 
     for i in range(1, num_iterations + 1):
         # Linear gamma schedule
@@ -134,12 +147,28 @@ def train_p2n(
         optimizer.step()
 
         if i % log_every == 0 or i == 1:
+            step_history.append(i)
+            loss_history.append(loss.item())
+
+            # Evaluate PSNR for this step
+            model.eval()
+            with torch.no_grad():
+                # Get intermediate prediction
+                current_denoised_pad = model(dirty_img)
+            
+            # Unpad to match the ground truth dimensions
+            current_denoised = unpad(current_denoised_pad, pad_hw)
+            
+            # Calculate PSNR
+            current_psnr = compute_psnr(current_denoised, gt_img, min_i, max_i)
+            psnr_history.append(current_psnr)
+
             print(f"[iter {i:4d}/{num_iterations}]  loss={loss.item():.6f}"
-                  f"  γ={gamma:.4f}")
+                  f"  γ={gamma:.4f}  PSNR={current_psnr:.4f} dB")
 
     # ── Inference: one clean forward pass ───────────────────────────────
     model.eval()
     with torch.no_grad():
         denoised = model(dirty_img).clamp(min_i, max_i)
 
-    return denoised
+    return denoised, step_history, loss_history, psnr_history
