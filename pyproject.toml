@@ -8,6 +8,7 @@ dependencies = [
     "kagglehub<1.0.0",
     "kagglesdk>=0.1.23",
     "numpy>=2.4.6",
+    "pillow>=11.0.0",
     "torch>=2.12.0",
     "torchinfo>=1.8.0",
 ]
