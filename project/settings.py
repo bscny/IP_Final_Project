@@ -8,7 +8,7 @@ import torch
 WANDB_PROJECT = "Positive2Negative"
 WANDB_FINETUNE_RUN = "SSL-ver1"
 
-WEIGHTS_PATH = Path("pretrained_weights.pt")  # Adjust this according to the path
+WEIGHTS_PATH = Path("unet_pretrain/unet_pretrain.pt")  # Adjust this according to the path
 DATA_DIR     = Path("data")
 RESULT_DIR   = Path("result")
 
@@ -25,11 +25,12 @@ CLEAN_DIR = Path("div2k/div2k_train")
 OUTPUT_PATH = Path("unet_pretrain.pt")
 CHECKPOINT_DIR = Path("unet_pretrain/checkpoints")
 
-EPOCHS = 100
+EPOCHS = 200
+USE_PADDING = True  # Toggle to switch between padding and cropping
 BATCH_SIZE = 8
-CROP_SIZE = 256
+CROP_SIZE = 1024
 NOISE_SIGMA = 25.0 # 25/255 -> 0.1
-PRETRAIN_LR = 1e-4
+PRETRAIN_LR = 1e-3
 WEIGHT_DECAY = 0.0
 
 VAL_FRACTION = 0.05

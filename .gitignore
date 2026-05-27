@@ -8,3 +8,4 @@ project/data/div2k/div2k_*
 uv.lock
 project/unet_pretrain/checkpoints
 images
+unet_pretrain.pt
