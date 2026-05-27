@@ -1,6 +1,7 @@
 import argparse
 import json
 import math
+import os
 import random
 import sys
 import time
@@ -247,7 +248,31 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=settings.SEED)
     parser.add_argument("--save-every", type=int, default=settings.SAVE_EVERY)
     parser.add_argument("--log-every", type=int, default=settings.LOG_EVERY)
+    parser.add_argument("--wandb", action="store_true", help="Log training metrics to Weights & Biases.")
+    parser.add_argument("--wandb-project", default="ip-final-project")
+    parser.add_argument("--wandb-run-name", default=None)
+    parser.add_argument("--env-file", type=Path, default=PROJECT_ROOT.parent / ".env")
     return parser.parse_args()
+
+
+def load_dotenv(path: Path) -> None:
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+
+
+def init_wandb(args: argparse.Namespace, config: TrainConfig):
+    if not args.wandb:
+        return None
+
+    load_dotenv(args.env_file)
+    import wandb
+    return wandb.init(project=args.wandb_project, name=args.wandb_run_name, config=asdict(config))
 
 
 def main() -> None:
@@ -290,6 +315,7 @@ def main() -> None:
 
     print(json.dumps(asdict(config), indent=2), flush=True)
     print(f"train images: {len(train_clean)} | val images: {len(val_clean)}", flush=True)
+    wandb_run = init_wandb(args, config)
 
     train_dataset = DIV2KDenoisingDataset(
         train_clean,
@@ -398,12 +424,26 @@ def main() -> None:
                 train_loss,
                 val_loss,
             )
+        if wandb_run is not None:
+            metrics = {
+                "epoch": epoch,
+                "train/mse": train_loss,
+                "train/psnr": train_psnr,
+                "elapsed_minutes": (time.time() - start_time) / 60.0,
+            }
+            if val_loss is not None and val_psnr is not None:
+                metrics["val/mse"] = val_loss
+                metrics["val/psnr"] = val_psnr
+                metrics["val/best_mse"] = best_val_loss
+            wandb_run.log(metrics)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     torch.save(model.state_dict(), args.output)
     elapsed = time.time() - start_time
     print(f"Saved state_dict for finetune.py: {args.output}", flush=True)
     print(f"Elapsed: {elapsed / 60.0:.1f} min", flush=True)
+    if wandb_run is not None:
+        wandb_run.finish()
 
 
 if __name__ == "__main__":
