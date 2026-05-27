@@ -29,6 +29,9 @@ Before start downloading the datasets, first `cd` to the project root and make s
 2. `mv PolyU-Real-World-Noisy-Images-Dataset/OriginalImages/ data/PolyU`
 3. `rm -rf PolyU-Real-World-Noisy-Images-Dataset/`
 
+### div2k
+1. `uv run project/data/div2k/download.py` (hope the file will appear in data/div2k :P)
+
 ## Final Look
 
 After the above steps, the file structure under `data` is:

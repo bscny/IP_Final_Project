@@ -3,9 +3,8 @@ __pycache__
 wandb
 test*
 data
-project/data/div2k/div2k_*
 .env
 uv.lock
-project/unet_pretrain/checkpoints
 images
+project/unet_pretrain/checkpoints
 unet_pretrain.pt
