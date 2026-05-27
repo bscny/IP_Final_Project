@@ -1,0 +1,13 @@
+[project]
+name = "ip-final-project"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "kagglehub<1.0.0",
+    "kagglesdk>=0.1.23",
+    "numpy>=2.4.6",
+    "torch>=2.12.0",
+    "torchinfo>=1.8.0",
+]
