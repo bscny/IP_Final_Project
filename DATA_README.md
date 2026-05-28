@@ -4,17 +4,18 @@ We have used [DIV2K](https://www.kaggle.com/datasets/soumikrakshit/div2k-high-re
 
 ## Training U-Net
 
+Before start training U-Net, first `cd` to the `project` folder and make sure there is a `data` directory under it.
+
 ### div2k(only train is used)
 
-1. `cd project/data/div2k`
-2. `uv run project/data/div2k/download.py` 
-3. `mv ./data/div2k/datasets/soumikrakshit/div2k-high-resolution-images/versions/1 .`
-4. `mv 1/DIV2K_train_HR/ div2k_train`
-5. `rm -rf data/ 1 `
+1. `curl -Lo ./DIV2K_train_HR.zip http://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_train_HR.zip`
+2. `unzip DIV2K_train_HR.zip`
+3. `rm DIV2K_train_HR.zip`
+4. `mkdir -p data/ && mv DIV2K_train_HR/ data/DIV2K`
 
 ## Finetuning the U-Net via Self-Supervised Learning
 
-Before start downloading the datasets, first `cd` to the `project` folder and make sure there is a `data/` folder under it.
+Before start downloading the datasets, first `cd` to the `project` folder and make sure there is a `data/` folder under it as well.
 
 ### SIDD
 
