@@ -21,7 +21,7 @@ MIN_I = 0
 
 # Training Noise2NoiseUNet ------------------------------------------------------
 
-CLEAN_DIR = Path("div2k/div2k_train")
+CLEAN_DIR = Path("data/div2k/div2k_train")
 OUTPUT_PATH = Path("unet_pretrain.pt")
 CHECKPOINT_DIR = Path("unet_pretrain/checkpoints")
 
