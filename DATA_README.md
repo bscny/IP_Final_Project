@@ -42,6 +42,7 @@ Before start downloading the datasets, first `cd` to the `project` folder and ma
 ## Final Look
 
 After the above steps, the file structure under `data` is:
+
 ```
 data
 ├── CC
@@ -52,12 +53,19 @@ data
 │   ├── ...
 │   ├── SonyA7II_water_mean.JPG
 │   └── SonyA7II_water_Real.JPG
-└── SIDD
+├── SIDD
+│   ├── ...
+│   ├── 0199_010_GP_00800_01600_5500_N
+│   │   ├── GT_SRGB_010.PNG
+│   │   └── NOISY_SRGB_010.PNG
+│   └── 0200_010_GP_01600_03200_5500_N
+│       ├── GT_SRGB_010.PNG
+│       └── NOISY_SRGB_010.PNG
+└── DIV2K
     ├── ...
-    ├── 0199_010_GP_00800_01600_5500_N
-    │   ├── GT_SRGB_010.PNG
-    │   └── NOISY_SRGB_010.PNG
-    └── 0200_010_GP_01600_03200_5500_N
-        ├── GT_SRGB_010.PNG
-        └── NOISY_SRGB_010.PNG
+    ├── 0001.png
+    ├── 0002.png
+    └── 0800.png
 ```
+
+
