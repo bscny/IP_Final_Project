@@ -312,6 +312,12 @@ def save_checkpoint(
 
 
 def parse_args() -> argparse.Namespace:
+    # Safely pull WORLD_SIZE from torchrun again (defaults to 1 if not running distributed)
+    world_size = int(os.environ.get("WORLD_SIZE", 1))
+
+    # Divide global batch size by GPUs to get the local per-GPU batch size
+    local_batch_size = max(1, settings.BATCH_SIZE // world_size)
+    
     parser = argparse.ArgumentParser(
         description="Supervised pre-training for Noise2Noise U-Net on DIV2K denoising."
     )
@@ -320,7 +326,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, default=settings.OUTPUT_PATH)
     parser.add_argument("--checkpoint-dir", type=Path, default=settings.CHECKPOINT_DIR)
     parser.add_argument("--epochs", type=int, default=settings.EPOCHS)
-    parser.add_argument("--batch-size", type=int, default=settings.BATCH_SIZE)
+    
+    # 3. Inject the calculated local batch size here
+    parser.add_argument("--batch-size", type=int, default=local_batch_size, help="Local batch size for each GPU.")
+    
     parser.add_argument("--crop-size", type=int, default=settings.CROP_SIZE)
     parser.add_argument("--noise-sigma", type=float, default=settings.NOISE_SIGMA, help="Gaussian noise std in 0-255 scale.")
     parser.add_argument("--lr", type=float, default=settings.PRETRAIN_LR)
@@ -390,7 +399,7 @@ def main() -> None:
         output=str(args.output),
         checkpoint_dir=str(args.checkpoint_dir),
         epochs=args.epochs,
-        batch_size=args.batch_size,
+        batch_size=args.batch_size * world_size,
         crop_size=args.crop_size,
         noise_sigma=args.noise_sigma,
         lr=args.lr,
@@ -424,7 +433,7 @@ def main() -> None:
         noise_sigma=args.noise_sigma,
         random_crop=False,
         use_padding=args.use_padding,
-    ) if val_clean else None
+    ) if (val_clean and is_main_process(rank)) else None
 
     # Conditionally attach the custom collate_fn
     collate_fn = pad_collate_fn if args.use_padding else None
