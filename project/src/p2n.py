@@ -1,10 +1,86 @@
-import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch
 from typing import Tuple, List
 
 # Custom Modules
 from src.utils.image_helper import compute_psnr, unpad
+
+
+def _validate_multiple(name: str, value: int, multiple: int = 32) -> None:
+    if value <= 0 or value % multiple != 0:
+        raise ValueError(f"{name} must be a positive multiple of {multiple}; got {value}")
+
+
+def random_spatial_crop(tensor: torch.Tensor, crop_size: int) -> torch.Tensor:
+    """
+    Returns a random square crop. If the image is smaller than the requested crop,
+    returns the original tensor.
+    """
+    if crop_size <= 0:
+        return tensor
+
+    _, _, height, width = tensor.shape
+    crop_h = min(crop_size, height)
+    crop_w = min(crop_size, width)
+
+    if crop_h == height and crop_w == width:
+        return tensor
+
+    top = torch.randint(0, height - crop_h + 1, (1,), device=tensor.device).item()
+    left = torch.randint(0, width - crop_w + 1, (1,), device=tensor.device).item()
+    return tensor[:, :, top:top + crop_h, left:left + crop_w]
+
+
+def _tile_starts(length: int, tile_size: int, stride: int) -> List[int]:
+    if length <= tile_size:
+        return [0]
+
+    starts = list(range(0, length - tile_size + 1, stride))
+    last = length - tile_size
+    if starts[-1] != last:
+        starts.append(last)
+    return starts
+
+
+def denoise_tiled(
+    model: nn.Module,
+    image: torch.Tensor,
+    tile_size: int,
+    overlap: int,
+    min_i: float,
+    max_i: float,
+) -> torch.Tensor:
+    """
+    Runs full-image denoising in overlapping tiles to keep inference memory
+    bounded for high-resolution benchmark images.
+    """
+    _validate_multiple("tile_size", tile_size)
+    if overlap < 0 or overlap >= tile_size:
+        raise ValueError(f"overlap must be in [0, tile_size); got {overlap}")
+
+    _, _, height, width = image.shape
+    if height <= tile_size and width <= tile_size:
+        return model(image).clamp(min_i, max_i)
+
+    tile_h = min(tile_size, height)
+    tile_w = min(tile_size, width)
+    stride = tile_size - overlap
+    y_starts = _tile_starts(height, tile_h, stride)
+    x_starts = _tile_starts(width, tile_w, stride)
+
+    output = torch.zeros_like(image)
+    counts = torch.zeros((image.shape[0], 1, height, width), device=image.device, dtype=image.dtype)
+
+    for top in y_starts:
+        bottom = top + tile_h
+        for left in x_starts:
+            right = left + tile_w
+            tile = image[:, :, top:bottom, left:right]
+            output[:, :, top:bottom, left:right] += model(tile).clamp(min_i, max_i)
+            counts[:, :, top:bottom, left:right] += 1
+
+    return output / counts.clamp_min(1)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Denoised Consistency Supervision (DCS)
@@ -90,7 +166,11 @@ def train_p2n(
     gamma_start: float,
     gamma_end: float,
     log_every: int ,
-    min_i: int , max_i: int
+    min_i: int,
+    max_i: int,
+    crop_size: int = 1024,
+    tile_size: int = 1024,
+    tile_overlap: int = 64,
 ) -> Tuple[torch.Tensor, List[int], List[float], List[float]]:
     """
     Full Positive2Negative self-supervised training loop for a *single* image.
@@ -115,6 +195,9 @@ def train_p2n(
         loss_history : The loss according to log_every
         psnr_history : The psnr according to log_every
     """
+    if crop_size > 0:
+        _validate_multiple("crop_size", crop_size)
+
     model.train()
     optimizer = optim.AdamW(model.parameters(), lr=lr)
 
@@ -128,12 +211,14 @@ def train_p2n(
         progress = (i - 1) / max(num_iterations - 1, 1)   # in case num_iteration is set to only 1
         gamma = gamma_start + progress * (gamma_end - gamma_start)
 
+        dirty_patch = random_spatial_crop(dirty_img, crop_size)
+
         # Renoised Data Construction (RDC)
-        y_p, y_n = build_renoised_pair(model, dirty_img, sigma=sigma, min_i=min_i, max_i=max_i)
+        y_p, y_n = build_renoised_pair(model, dirty_patch, sigma=sigma, min_i=min_i, max_i=max_i)
 
         # Switch back to training mode for the DCS forward passes
         model.train()
-        optimizer.zero_grad()
+        optimizer.zero_grad(set_to_none=True)
 
         # Denoised Consistency Supervision (DCS)
         # Two forward passes share the same network weights.
@@ -145,16 +230,26 @@ def train_p2n(
 
         loss.backward()
         optimizer.step()
+        loss_value = loss.item()
+
+        del dirty_patch, y_p, y_n, pred_pos, pred_neg, loss
 
         if i % log_every == 0 or i == 1:
             step_history.append(i)
-            loss_history.append(loss.item())
+            loss_history.append(loss_value)
 
             # Evaluate PSNR for this step
             model.eval()
             with torch.no_grad():
                 # Get intermediate prediction
-                current_denoised_pad = model(dirty_img)
+                current_denoised_pad = denoise_tiled(
+                    model,
+                    dirty_img,
+                    tile_size=tile_size,
+                    overlap=tile_overlap,
+                    min_i=min_i,
+                    max_i=max_i,
+                )
             
             # Unpad to match the ground truth dimensions
             current_denoised = unpad(current_denoised_pad, pad_hw)
@@ -163,12 +258,21 @@ def train_p2n(
             current_psnr = compute_psnr(current_denoised, gt_img, min_i, max_i)
             psnr_history.append(current_psnr)
 
-            print(f"[iter {i:4d}/{num_iterations}]  loss={loss.item():.6f}"
+            print(f"[iter {i:4d}/{num_iterations}]  loss={loss_value:.6f}"
                   f"  γ={gamma:.4f}  PSNR={current_psnr:.4f} dB")
+
+            del current_denoised_pad, current_denoised
 
     # ── Inference: one clean forward pass ───────────────────────────────
     model.eval()
     with torch.no_grad():
-        denoised = model(dirty_img).clamp(min_i, max_i)
+        denoised = denoise_tiled(
+            model,
+            dirty_img,
+            tile_size=tile_size,
+            overlap=tile_overlap,
+            min_i=min_i,
+            max_i=max_i,
+        )
 
     return denoised, step_history, loss_history, psnr_history
