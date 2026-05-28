@@ -328,7 +328,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=settings.EPOCHS)
     
     # 3. Inject the calculated local batch size here
-    parser.add_argument("--batch-size", type=int, default=local_batch_size)
+    parser.add_argument("--batch-size", type=int, default=local_batch_size, help="Local batch size for each GPU.")
     
     parser.add_argument("--crop-size", type=int, default=settings.CROP_SIZE)
     parser.add_argument("--noise-sigma", type=float, default=settings.NOISE_SIGMA, help="Gaussian noise std in 0-255 scale.")
