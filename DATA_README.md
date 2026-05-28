@@ -4,6 +4,14 @@ We have used [DIV2K](https://www.kaggle.com/datasets/soumikrakshit/div2k-high-re
 
 ## Training U-Net
 
+### div2k(only train is used)
+
+1. `cd project/data/div2k`
+2. `uv run project/data/div2k/download.py` 
+3. `mv ./data/div2k/datasets/soumikrakshit/div2k-high-resolution-images/versions/1 .`
+4. `mv 1/DIV2K_train_HR/ div2k_train`
+5. `rm -rf data/ 1 `
+
 ## Finetuning the U-Net via Self-Supervised Learning
 
 Before start downloading the datasets, first `cd` to the project root and make sure there are a `data/` folder there.
@@ -29,13 +37,6 @@ Before start downloading the datasets, first `cd` to the project root and make s
 2. `mv PolyU-Real-World-Noisy-Images-Dataset/OriginalImages/ data/PolyU`
 3. `rm -rf PolyU-Real-World-Noisy-Images-Dataset/`
 
-### div2k(only train is used)
-
-1. `cd project/data/div2k`
-2. `uv run project/data/div2k/download.py` 
-3. `mv ./data/div2k/datasets/soumikrakshit/div2k-high-resolution-images/versions/1 .`
-4. `mv 1/DIV2K_train_HR/ div2k_train`
-5. `rm -rf data/ 1 `
 
 ## Final Look
 
