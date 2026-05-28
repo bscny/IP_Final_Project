@@ -11,10 +11,13 @@ from typing import Sequence
 
 import numpy as np
 import torch
+import torch.distributed as dist
 import torch.nn.functional as F
 from PIL import Image
 from torch import nn
+from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader, Dataset
+from torch.utils.data.distributed import DistributedSampler
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -207,6 +210,34 @@ def worker_init_fn(worker_id: int) -> None:
     np.random.seed((seed + worker_id) % (2**32))
 
 
+def init_distributed() -> tuple[bool, int, int, int, torch.device]:
+    if "RANK" not in os.environ or "WORLD_SIZE" not in os.environ:
+        return False, 0, 0, 1, settings.DEVICE
+
+    rank = int(os.environ["RANK"])
+    local_rank = int(os.environ["LOCAL_RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
+    backend = "nccl" if torch.cuda.is_available() else "gloo"
+
+    if torch.cuda.is_available():
+        torch.cuda.set_device(local_rank)
+        device = torch.device("cuda", local_rank)
+    else:
+        device = torch.device("cpu")
+
+    dist.init_process_group(backend=backend)
+    return True, rank, local_rank, world_size, device
+
+
+def is_main_process(rank: int) -> bool:
+    return rank == 0
+
+
+def main_print(rank: int, *args, **kwargs) -> None:
+    if is_main_process(rank):
+        print(*args, **kwargs)
+
+
 def run_epoch(
     model: nn.Module,
     loader: DataLoader[tuple[torch.Tensor, torch.Tensor]],
@@ -215,6 +246,8 @@ def run_epoch(
     optimizer: torch.optim.Optimizer | None,
     epoch: int,
     log_every: int,
+    rank: int = 0,
+    distributed: bool = False,
 ) -> tuple[float, float]:
     is_train = optimizer is not None
     model.train(is_train)
@@ -238,12 +271,18 @@ def run_epoch(
         total_loss += loss.item() * batch_size
         total_items += batch_size
 
-        if is_train and (step == 1 or step % log_every == 0):
+        if is_train and is_main_process(rank) and (step == 1 or step % log_every == 0):
             print(
                 f"[epoch {epoch:03d}] step {step:04d}/{len(loader):04d} "
                 f"train_mse={loss.item():.6f} psnr={compute_psnr_from_mse(loss.item()):.2f}dB",
                 flush=True,
             )
+
+    if distributed:
+        totals = torch.tensor([total_loss, float(total_items)], device=device)
+        dist.all_reduce(totals, op=dist.ReduceOp.SUM)
+        total_loss = totals[0].item()
+        total_items = int(totals[1].item())
 
     avg_loss = total_loss / max(total_items, 1)
     return avg_loss, compute_psnr_from_mse(avg_loss)
@@ -273,6 +312,12 @@ def save_checkpoint(
 
 
 def parse_args() -> argparse.Namespace:
+    # Safely pull WORLD_SIZE from torchrun again (defaults to 1 if not running distributed)
+    world_size = int(os.environ.get("WORLD_SIZE", 1))
+
+    # Divide global batch size by GPUs to get the local per-GPU batch size
+    local_batch_size = max(1, settings.BATCH_SIZE // world_size)
+    
     parser = argparse.ArgumentParser(
         description="Supervised pre-training for Noise2Noise U-Net on DIV2K denoising."
     )
@@ -281,7 +326,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, default=settings.OUTPUT_PATH)
     parser.add_argument("--checkpoint-dir", type=Path, default=settings.CHECKPOINT_DIR)
     parser.add_argument("--epochs", type=int, default=settings.EPOCHS)
-    parser.add_argument("--batch-size", type=int, default=settings.BATCH_SIZE)
+    
+    # 3. Inject the calculated local batch size here
+    parser.add_argument("--batch-size", type=int, default=local_batch_size, help="Local batch size for each GPU.")
+    
     parser.add_argument("--crop-size", type=int, default=settings.CROP_SIZE)
     parser.add_argument("--noise-sigma", type=float, default=settings.NOISE_SIGMA, help="Gaussian noise std in 0-255 scale.")
     parser.add_argument("--lr", type=float, default=settings.PRETRAIN_LR)
@@ -324,12 +372,14 @@ def init_wandb(args: argparse.Namespace, config: TrainConfig):
 
 def main() -> None:
     args = parse_args()
+    distributed, rank, local_rank, world_size, device = init_distributed()
     if not args.use_padding and args.crop_size > 0 and args.crop_size % 32 != 0:
         raise ValueError("--crop-size must be divisible by 32 for the current U-Net")
 
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
+    seed = args.seed + rank
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
 
     all_clean = list_images(args.clean_dir)
 
@@ -349,7 +399,7 @@ def main() -> None:
         output=str(args.output),
         checkpoint_dir=str(args.checkpoint_dir),
         epochs=args.epochs,
-        batch_size=args.batch_size,
+        batch_size=args.batch_size * world_size,
         crop_size=args.crop_size,
         noise_sigma=args.noise_sigma,
         lr=args.lr,
@@ -361,9 +411,14 @@ def main() -> None:
         use_padding=args.use_padding, # Log the state of padding
     )
 
-    print(json.dumps(asdict(config), indent=2), flush=True)
-    print(f"train images: {len(train_clean)} | val images: {len(val_clean)}", flush=True)
-    wandb_run = init_wandb(args, config)
+    main_print(rank, json.dumps(asdict(config), indent=2), flush=True)
+    main_print(
+        rank,
+        f"train images: {len(train_clean)} | val images: {len(val_clean)} | "
+        f"world size: {world_size}",
+        flush=True,
+    )
+    wandb_run = init_wandb(args, config) if is_main_process(rank) else None
 
     train_dataset = DIV2KDenoisingDataset(
         train_clean,
@@ -378,17 +433,25 @@ def main() -> None:
         noise_sigma=args.noise_sigma,
         random_crop=False,
         use_padding=args.use_padding,
-    ) if val_clean else None
+    ) if (val_clean and is_main_process(rank)) else None
 
     # Conditionally attach the custom collate_fn
     collate_fn = pad_collate_fn if args.use_padding else None
 
     generator = torch.Generator()
-    generator.manual_seed(args.seed)
+    generator.manual_seed(seed)
+    train_sampler = DistributedSampler(
+        train_dataset,
+        num_replicas=world_size,
+        rank=rank,
+        shuffle=True,
+        seed=args.seed,
+    ) if distributed else None
     train_loader = DataLoader(
         train_dataset,
         batch_size=args.batch_size,
-        shuffle=True,
+        shuffle=train_sampler is None,
+        sampler=train_sampler,
         num_workers=args.num_workers,
         pin_memory=torch.cuda.is_available(),
         worker_init_fn=worker_init_fn,
@@ -403,10 +466,15 @@ def main() -> None:
         pin_memory=torch.cuda.is_available(),
         worker_init_fn=worker_init_fn,
         collate_fn=collate_fn, # Apply custom batching
-    ) if val_dataset is not None else None
+    ) if val_dataset is not None and is_main_process(rank) else None
 
-    device = settings.DEVICE
-    model = Noise2NoiseUNet().to(device)
+    raw_model = Noise2NoiseUNet().to(device)
+    model: nn.Module = raw_model
+    if distributed:
+        model = DistributedDataParallel(
+            raw_model,
+            device_ids=[local_rank] if torch.cuda.is_available() else None,
+        )
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(
         model.parameters(),
@@ -418,6 +486,9 @@ def main() -> None:
     best_val_loss = float("inf")
     start_time = time.time()
     for epoch in range(1, args.epochs + 1):
+        if train_sampler is not None:
+            train_sampler.set_epoch(epoch)
+
         train_loss, train_psnr = run_epoch(
             model,
             train_loader,
@@ -426,80 +497,93 @@ def main() -> None:
             optimizer,
             epoch,
             args.log_every,
+            rank=rank,
+            distributed=distributed,
         )
 
         val_loss = None
         val_psnr = None
-        if val_loader is not None:
+        if distributed:
+            dist.barrier()
+        if val_loader is not None and is_main_process(rank):
             with torch.no_grad():
                 val_loss, val_psnr = run_epoch(
-                    model,
+                    raw_model,
                     val_loader,
                     criterion,
                     device,
                     optimizer=None,
                     epoch=epoch,
                     log_every=args.log_every,
+                    rank=rank,
+                    distributed=False,
                 )
+        if distributed:
+            dist.barrier()
 
-        msg = (
-            f"[epoch {epoch:03d}/{args.epochs:03d}] "
-            f"train_mse={train_loss:.6f} train_psnr={train_psnr:.2f}dB"
-        )
-        if val_loss is not None and val_psnr is not None:
-            msg += f" val_mse={val_loss:.6f} val_psnr={val_psnr:.2f}dB"
-        print(msg, flush=True)
-
-        save_checkpoint(
-            args.checkpoint_dir / "last.pt",
-            model,
-            optimizer,
-            epoch,
-            config,
-            train_loss,
-            val_loss,
-        )
-        if epoch % args.save_every == 0:
-            save_checkpoint(
-                args.checkpoint_dir / f"epoch_{epoch:03d}.pt",
-                model,
-                optimizer,
-                epoch,
-                config,
-                train_loss,
-                val_loss,
+        if is_main_process(rank):
+            msg = (
+                f"[epoch {epoch:03d}/{args.epochs:03d}] "
+                f"train_mse={train_loss:.6f} train_psnr={train_psnr:.2f}dB"
             )
-        if val_loss is not None and val_loss < best_val_loss:
-            best_val_loss = val_loss
-            save_checkpoint(
-                args.checkpoint_dir / "best.pt",
-                model,
-                optimizer,
-                epoch,
-                config,
-                train_loss,
-                val_loss,
-            )
-        if wandb_run is not None:
-            metrics = {
-                "epoch": epoch,
-                "train/mse": train_loss,
-                "train/psnr": train_psnr,
-                "elapsed_minutes": (time.time() - start_time) / 60.0,
-            }
             if val_loss is not None and val_psnr is not None:
-                metrics["val/mse"] = val_loss
-                metrics["val/psnr"] = val_psnr
-                metrics["val/best_mse"] = best_val_loss
-            wandb_run.log(metrics)
+                msg += f" val_mse={val_loss:.6f} val_psnr={val_psnr:.2f}dB"
+            print(msg, flush=True)
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(model.state_dict(), args.output)
-    elapsed = time.time() - start_time
-    print(f"Saved state_dict for finetune.py: {args.output}", flush=True)
-    print(f"Elapsed: {elapsed / 60.0:.1f} min", flush=True)
-    if wandb_run is not None:
-        wandb_run.finish()
+            save_checkpoint(
+                args.checkpoint_dir / "last.pt",
+                raw_model,
+                optimizer,
+                epoch,
+                config,
+                train_loss,
+                val_loss,
+            )
+            if epoch % args.save_every == 0:
+                save_checkpoint(
+                    args.checkpoint_dir / f"epoch_{epoch:03d}.pt",
+                    raw_model,
+                    optimizer,
+                    epoch,
+                    config,
+                    train_loss,
+                    val_loss,
+                )
+            if val_loss is not None and val_loss < best_val_loss:
+                best_val_loss = val_loss
+                save_checkpoint(
+                    args.checkpoint_dir / "best.pt",
+                    raw_model,
+                    optimizer,
+                    epoch,
+                    config,
+                    train_loss,
+                    val_loss,
+                )
+            if wandb_run is not None:
+                metrics = {
+                    "epoch": epoch,
+                    "train/mse": train_loss,
+                    "train/psnr": train_psnr,
+                    "elapsed_minutes": (time.time() - start_time) / 60.0,
+                }
+                if val_loss is not None and val_psnr is not None:
+                    metrics["val/mse"] = val_loss
+                    metrics["val/psnr"] = val_psnr
+                    metrics["val/best_mse"] = best_val_loss
+                wandb_run.log(metrics)
+
+    if is_main_process(rank):
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(raw_model.state_dict(), args.output)
+        elapsed = time.time() - start_time
+        print(f"Saved state_dict for finetune.py: {args.output}", flush=True)
+        print(f"Elapsed: {elapsed / 60.0:.1f} min", flush=True)
+        if wandb_run is not None:
+            wandb_run.finish()
+    if distributed:
+        dist.barrier()
+        dist.destroy_process_group()
 
 
 if __name__ == "__main__":

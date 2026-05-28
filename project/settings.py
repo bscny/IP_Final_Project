@@ -26,7 +26,7 @@ OUTPUT_PATH = Path("unet_pretrain.pt")
 CHECKPOINT_DIR = Path("unet_pretrain/checkpoints")
 
 EPOCHS = 200
-USE_PADDING = True  # Toggle to switch between padding and cropping
+USE_PADDING = False # Toggle to switch between padding and cropping
 BATCH_SIZE = 8
 CROP_SIZE = 1024
 NOISE_SIGMA = 25.0 # 25/255 -> 0.1
