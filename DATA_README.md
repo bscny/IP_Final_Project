@@ -14,7 +14,7 @@ We have used [DIV2K](https://www.kaggle.com/datasets/soumikrakshit/div2k-high-re
 
 ## Finetuning the U-Net via Self-Supervised Learning
 
-Before start downloading the datasets, first `cd` to the project root and make sure there are a `data/` folder there.
+Before start downloading the datasets, first `cd` to the `project` folder and make sure there is a `data/` folder under it.
 
 ### SIDD
 
