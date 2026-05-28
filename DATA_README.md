@@ -1,6 +1,6 @@
 # Dataset Used in this Project
 
-We have used [DIV2K](https://www.kaggle.com/datasets/soumikrakshit/div2k-high-resolution-images?select=DIV2K_train_HR) for training, and [SIDD](https://www.kaggle.com/datasets/rajat95gupta/smartphone-image-denoising-dataset), [CC (subset)](https://github.com/csjunxu/MCWNNM-ICCV2017/tree/master), [PolyU](https://github.com/csjunxu/PolyU-Real-World-Noisy-Images-Dataset).
+We have used [DIV2K](https://www.kaggle.com/datasets/soumikrakshit/div2k-high-resolution-images?select=DIV2K_train_HR) for training, and [SIDD](https://www.kaggle.com/datasets/rajat95gupta/smartphone-image-denoising-dataset), [CC (subset)](https://github.com/csjunxu/MCWNNM-ICCV2017/tree/master), [PolyU](https://github.com/csjunxu/PolyU-Real-World-Noisy-Images-Dataset) for finetuning (The paper's SSL training paradigm).
 
 ## Training U-Net
 
