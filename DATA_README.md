@@ -1,12 +1,21 @@
 # Dataset Used in this Project
 
-We have used [DIV2K](https://www.kaggle.com/datasets/soumikrakshit/div2k-high-resolution-images?select=DIV2K_train_HR) for training, and [SIDD](https://www.kaggle.com/datasets/rajat95gupta/smartphone-image-denoising-dataset), [CC (subset)](https://github.com/csjunxu/MCWNNM-ICCV2017/tree/master), [PolyU](https://github.com/csjunxu/PolyU-Real-World-Noisy-Images-Dataset).
+We have used [DIV2K](https://www.kaggle.com/datasets/soumikrakshit/div2k-high-resolution-images?select=DIV2K_train_HR) for training, and [SIDD](https://www.kaggle.com/datasets/rajat95gupta/smartphone-image-denoising-dataset), [CC (subset)](https://github.com/csjunxu/MCWNNM-ICCV2017/tree/master), [PolyU](https://github.com/csjunxu/PolyU-Real-World-Noisy-Images-Dataset) for finetuning (The paper's SSL training paradigm).
 
 ## Training U-Net
 
+Before start training U-Net, first `cd` to the `project` folder and make sure there is a `data` directory under it.
+
+### div2k(only train is used)
+
+1. `curl -Lo ./DIV2K_train_HR.zip http://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_train_HR.zip`
+2. `unzip DIV2K_train_HR.zip`
+3. `rm DIV2K_train_HR.zip`
+4. `mkdir -p data/ && mv DIV2K_train_HR/ data/DIV2K`
+
 ## Finetuning the U-Net via Self-Supervised Learning
 
-Before start downloading the datasets, first `cd` to the project root and make sure there are a `data/` folder there.
+Before start downloading the datasets, first `cd` to the `project` folder and make sure there is a `data/` folder under it as well.
 
 ### SIDD
 
@@ -29,17 +38,11 @@ Before start downloading the datasets, first `cd` to the project root and make s
 2. `mv PolyU-Real-World-Noisy-Images-Dataset/OriginalImages/ data/PolyU`
 3. `rm -rf PolyU-Real-World-Noisy-Images-Dataset/`
 
-### div2k(only train is used)
-
-1. `cd project/data/div2k`
-2. `uv run project/data/div2k/download.py` 
-3. `mv ./data/div2k/datasets/soumikrakshit/div2k-high-resolution-images/versions/1 .`
-4. `mv 1/DIV2K_train_HR/ div2k_train`
-5. `rm -rf data/ 1 `
 
 ## Final Look
 
 After the above steps, the file structure under `data` is:
+
 ```
 data
 ├── CC
@@ -50,12 +53,19 @@ data
 │   ├── ...
 │   ├── SonyA7II_water_mean.JPG
 │   └── SonyA7II_water_Real.JPG
-└── SIDD
+├── SIDD
+│   ├── ...
+│   ├── 0199_010_GP_00800_01600_5500_N
+│   │   ├── GT_SRGB_010.PNG
+│   │   └── NOISY_SRGB_010.PNG
+│   └── 0200_010_GP_01600_03200_5500_N
+│       ├── GT_SRGB_010.PNG
+│       └── NOISY_SRGB_010.PNG
+└── DIV2K
     ├── ...
-    ├── 0199_010_GP_00800_01600_5500_N
-    │   ├── GT_SRGB_010.PNG
-    │   └── NOISY_SRGB_010.PNG
-    └── 0200_010_GP_01600_03200_5500_N
-        ├── GT_SRGB_010.PNG
-        └── NOISY_SRGB_010.PNG
+    ├── 0001.png
+    ├── 0002.png
+    └── 0800.png
 ```
+
+
