@@ -1,10 +1,8 @@
 import torch
 import re
-import wandb
 
 # Custom Modules
 from src.unet import Noise2NoiseUNet
-from src.p2n import train_p2n
 from src.utils.image_helper import compute_psnr, load_image_tensor, save_tensor_image, pad_to_multiple, unpad
 from src.utils.data_helper import find_cc_pairs, find_polyu_pairs, find_sidd_pairs
 
@@ -16,19 +14,13 @@ def main():
         print(f"ERROR: Pre-trained weights not found at '{settings.WEIGHTS_PATH}'")
         return
     
-    wandb.init(
-        project=settings.FT_WANDB_PROJECT,
-        name=settings.FT_WANDB_RUN,
-        config={
-            "learning_rate": settings.LR,
-            "iterations": settings.NUM_ITERATION,
-            "sigma": settings.SIGMA,
-            "gamma_start": settings.GAMMA_START,
-            "gamma_end": settings.GAMMA_END
-        }
-    )
-
+    # Initialize Model Once
+    print(f"Loading pre-trained model from: {settings.WEIGHTS_PATH}")
     pretrained_state = torch.load(settings.WEIGHTS_PATH, map_location="cpu")
+    model = Noise2NoiseUNet().to(settings.DEVICE)
+    model.load_state_dict(pretrained_state, strict=True)
+    
+    model.eval()
 
     dataset_configs = [
         ("CC",    find_cc_pairs(settings.DATA_DIR / "CC")),
@@ -47,10 +39,7 @@ def main():
         print(f" Dataset: {ds_name}  ({len(pairs)} image pairs)")
         print(f"{'='*60}")
 
-        psnr_list = []          # The evaluation PSNR result for each image
-        ds_loss_histories = []  # For wandb, track each iteration for each image
-        ds_psnr_histories = []  # For wandb, track each iteration for each image
-        recorded_steps = []     # For wandb, track each iteration for each image
+        psnr_list = []  # The evaluation PSNR result for each image
 
         for idx, (noisy_path, gt_path) in enumerate(pairs, 1):
             print(f"\n[{ds_name}] ({idx}/{len(pairs)}) {noisy_path.name}")
@@ -61,37 +50,14 @@ def main():
 
             # Pad for UNet (Height and Width must be divisible by 32)
             noisy_pad, pad_hw = pad_to_multiple(noisy, 32)
-
-            # Initialize Model (Fresh for each image)
-            model = Noise2NoiseUNet().to(settings.DEVICE)
-            model.load_state_dict(pretrained_state, strict=True)
-
-            # Fine-Tune using P2N
-            denoised_pad, steps, losses, psnrs = train_p2n(
-                model=model,
-                dirty_img=noisy_pad,
-                gt_img=gt,
-                pad_hw=pad_hw,
-                num_iterations=settings.NUM_ITERATION,
-                lr=settings.LR,
-                sigma=settings.SIGMA,
-                gamma_start=settings.GAMMA_START,
-                gamma_end=settings.GAMMA_END,
-                log_every=settings.LOG_STEP,
-                min_i=settings.MIN_I,
-                max_i=settings.MAX_I,
-                crop_size=settings.FT_CROP_SIZE
-            )
-
-            # Save the data points for this image
-            ds_loss_histories.append(losses)
-            ds_psnr_histories.append(psnrs)
-            if not recorded_steps:
-                recorded_steps = steps
-
+            
+            # Pure Inference Pass
+            with torch.no_grad():
+                denoised_pad = model(noisy_pad)
+                
             # Restore original dimensions
             denoised = unpad(denoised_pad, pad_hw)
-
+            
             # Metrics & Saving
             psnr = compute_psnr(denoised, gt, settings.MIN_I, settings.MAX_I)
             psnr_list.append(psnr)
@@ -106,11 +72,11 @@ def main():
                 # Attach the parent directory name (e.g., '0199_010_GP_00800...') to the stem
                 clean_stem = f"{noisy_path.parent.name}_{clean_stem}"
 
-            # Construct the new filename appending '_ours' and keeping the original extension
-            our_name = f"{clean_stem}_ours{noisy_path.suffix}"
+            # Construct the new filename appending '_pretrained' and keeping the original extension
+            our_name = f"{clean_stem}_pretrained{noisy_path.suffix}"
             
             # Construct the new output path
-            out_path = settings.FT_RESULT_DIR / ds_name / our_name
+            out_path = settings.INFERENCE_RESULT_DIR / ds_name / our_name
             
             # Ensure the new directory structure exists before saving
             out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -119,27 +85,12 @@ def main():
             print(f"  Saved → {out_path}")
 
             # Clean up memory dynamically 
-            del model
-            del denoised_pad
+            del noisy, gt, noisy_pad, denoised_pad, denoised
             torch.cuda.empty_cache()
 
-        # Calculate and log mean loss curve for the dataset
-        # zip(*ds_loss_histories) groups the losses by iteration across all images
-        mean_losses = [sum(iter_losses) / len(iter_losses) for iter_losses in zip(*ds_loss_histories)]
-        mean_psnrs  = [sum(iter_psnrs) / len(iter_psnrs) for iter_psnrs in zip(*ds_psnr_histories)]
-
-        # Graph to wandb
-        for step, mean_loss, mean_psnr in zip(recorded_steps, mean_losses, mean_psnrs):
-            wandb.log({
-                f"{ds_name}/iteration": step,
-                f"{ds_name}/mean_loss": mean_loss,
-                f"{ds_name}/mean_psnr": mean_psnr
-            })
-
+        # Calculate average PSNR for the dataset
         avg_eval_psnr = sum(psnr_list) / len(psnr_list)
         summary[ds_name] = (psnr_list, avg_eval_psnr)
-        wandb.log({f"{ds_name}/avg_final_psnr": avg_eval_psnr})
-        # print(f"\n[{ds_name}] Average PSNR: {avg_eval_psnr:.4f} dB\n")
 
     # Final Benchmarking Summary
     print(f"\n{'='*60}")
