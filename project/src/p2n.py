@@ -90,7 +90,8 @@ def train_p2n(
     gamma_start: float,
     gamma_end: float,
     log_every: int ,
-    min_i: int , max_i: int
+    min_i: int , max_i: int,
+    crop_size: int
 ) -> Tuple[torch.Tensor, List[int], List[float], List[float]]:
     """
     Full Positive2Negative self-supervised training loop for a *single* image.
@@ -121,15 +122,28 @@ def train_p2n(
     step_history = []
     loss_history = []
     psnr_history = []
+    
+    _, _, h, w = dirty_img.shape
 
     for i in range(1, num_iterations + 1):
         # Linear gamma schedule
         # γ decreases linearly from `gamma_start` (2.0) → `gamma_end` (1.5)
         progress = (i - 1) / max(num_iterations - 1, 1)   # in case num_iteration is set to only 1
         gamma = gamma_start + progress * (gamma_end - gamma_start)
+        
+        # If the image is smaller than the crop size, use the whole image
+        current_crop_h = min(crop_size, h)
+        current_crop_w = min(crop_size, w)
+        
+        # Randomly crop a patch from the dirty image for this iteration
+        top = torch.randint(0, h - current_crop_h + 1, (1,)).item()
+        left = torch.randint(0, w - current_crop_w + 1, (1,)).item()
+        
+        # Extract the patch
+        dirty_crop = dirty_img[..., top:top+current_crop_h, left:left+current_crop_w]
 
         # Renoised Data Construction (RDC)
-        y_p, y_n = build_renoised_pair(model, dirty_img, sigma=sigma, min_i=min_i, max_i=max_i)
+        y_p, y_n = build_renoised_pair(model, dirty_crop, sigma=sigma, min_i=min_i, max_i=max_i)
 
         # Switch back to training mode for the DCS forward passes
         model.train()
@@ -153,6 +167,7 @@ def train_p2n(
             # Evaluate PSNR for this step
             model.eval()
             with torch.no_grad():
+                # Inference on the FULL image for accurate PSNR logging
                 # Get intermediate prediction
                 current_denoised_pad = model(dirty_img)
             
