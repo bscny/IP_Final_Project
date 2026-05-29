@@ -79,7 +79,8 @@ def main():
                 gamma_end=settings.GAMMA_END,
                 log_every=settings.LOG_STEP,
                 min_i=settings.MIN_I,
-                max_i=settings.MAX_I
+                max_i=settings.MAX_I,
+                crop_size=settings.FT_CROP_SIZE
             )
 
             # Save the data points for this image

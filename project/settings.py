@@ -44,6 +44,7 @@ LOG_EVERY = 20
 # Finetuning Noise2NoiseUNet ----------------------------------------------------
 
 NUM_ITERATION = 100
+FT_CROP_SIZE = 2048
 
 SIGMA = 0.75
 
