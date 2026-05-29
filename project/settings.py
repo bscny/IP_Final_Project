@@ -45,11 +45,11 @@ INFERENCE_RESULT_DIR = Path("result/inference_images")
 
 # Finetuning Noise2NoiseUNet ----------------------------------------------------
 FT_WANDB_PROJECT = "ip-final-project-p2n"
-FT_WANDB_RUN = "SSL_ver1"  # Change this for each finetuning run
+FT_WANDB_RUN = "SSL-zero-one-003"  # Change this for each finetuning run
 FT_RESULT_DIR = Path("result/finetune_images")
 
 NUM_ITERATION = 100
-FT_CROP_SIZE = 2048
+FT_CROP_SIZE = 1024
 
 SIGMA = 0.75
 
