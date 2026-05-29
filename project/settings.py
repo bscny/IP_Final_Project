@@ -10,7 +10,6 @@ WANDB_FINETUNE_RUN = "SSL-ver1"
 
 WEIGHTS_PATH = Path("unet_pretrain/unet_pretrain.pt")  # Adjust this according to the path
 DATA_DIR     = Path("data")
-RESULT_DIR   = Path("result")
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -41,7 +40,15 @@ LOG_EVERY = 20
 
 # -------------------------------------------------------------------------------
 
+# Inferencing Noise2NoiseUNet ----------------------------------------------------
+
+INFERENCE_RESULT_DIR = Path("result/inference_images")
+
+# -------------------------------------------------------------------------------
+
 # Finetuning Noise2NoiseUNet ----------------------------------------------------
+
+FT_RESULT_DIR = Path("result/finetune_images")
 
 NUM_ITERATION = 100
 FT_CROP_SIZE = 2048
