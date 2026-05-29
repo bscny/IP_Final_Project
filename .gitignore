@@ -5,6 +5,7 @@ test*
 data
 .env
 uv.lock
-images
-project/unet_pretrain/checkpoints
+project/unet_pretrain/checkpoints*
 unet_pretrain.pt
+pre_trained_weights
+output.log

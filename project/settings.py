@@ -5,10 +5,7 @@ import torch
 
 # General Setting ---------------------------------------------------------------
 
-WANDB_PROJECT = "Positive2Negative"
-WANDB_FINETUNE_RUN = "SSL-ver1"
-
-WEIGHTS_PATH = Path("unet_pretrain/unet_pretrain.pt")  # Adjust this according to the path
+WEIGHTS_PATH = Path("pre_trained_weights/unet_pretrain_zero_one.pt")  # Adjust this according to the path
 DATA_DIR     = Path("data")
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -21,7 +18,7 @@ MIN_I = 0
 # Training Noise2NoiseUNet ------------------------------------------------------
 
 CLEAN_DIR = Path("data/DIV2K")
-OUTPUT_PATH = Path("unet_pretrain.pt")
+OUTPUT_PATH = WEIGHTS_PATH
 CHECKPOINT_DIR = Path("unet_pretrain/checkpoints")
 
 EPOCHS = 200
@@ -47,7 +44,8 @@ INFERENCE_RESULT_DIR = Path("result/inference_images")
 # -------------------------------------------------------------------------------
 
 # Finetuning Noise2NoiseUNet ----------------------------------------------------
-
+FT_WANDB_PROJECT = "ip-final-project-p2n"
+FT_WANDB_RUN = "SSL_ver1"  # Change this for each finetuning run
 FT_RESULT_DIR = Path("result/finetune_images")
 
 NUM_ITERATION = 100

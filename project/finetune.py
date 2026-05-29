@@ -17,8 +17,8 @@ def main():
         return
     
     wandb.init(
-        project=settings.WANDB_PROJECT,
-        name=settings.WANDB_FINETUNE_RUN,
+        project=settings.FT_WANDB_PROJECT,
+        name=settings.FT_WANDB_RUN,
         config={
             "learning_rate": settings.LR,
             "iterations": settings.NUM_ITERATION,
