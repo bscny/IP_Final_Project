@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from typing import Tuple, List
+import gc
 
 # Custom Modules
 from src.utils.image_helper import compute_psnr, unpad
@@ -71,8 +72,8 @@ def build_renoised_pair(
 # Training loop
 # ─────────────────────────────────────────────────────────────────────────────
 def train_p2n(
-    base_model: nn.Module,
     model: nn.Module,
+    x_hat: torch.Tensor,
     dirty_img: torch.Tensor,
     gt_img: torch.Tensor,
     pad_hw: Tuple[int, int],
@@ -114,11 +115,7 @@ def train_p2n(
     loss_history = []
     psnr_history = []
     
-    # Get the predicted denoised image and noise from the base model
-    base_model.eval()
-    with torch.no_grad():
-        x_hat = base_model(dirty_img)
-
+    # Get the predicted noise from the base model
     n_hat = dirty_img - x_hat
     
     _, _, h, w = x_hat.shape
@@ -163,6 +160,11 @@ def train_p2n(
         if i % log_every == 0 or i == 1:
             step_history.append(i)
             loss_history.append(loss.item())
+            
+            # MEMORY FIX: Flush training tensors from VRAM
+            # ==========================================
+            del pred_pos, pred_neg, y_p, y_n, loss
+            torch.cuda.empty_cache()
 
             # Evaluate PSNR for this step
             model.eval()
@@ -180,6 +182,11 @@ def train_p2n(
 
             print(f"[iter {i:4d}/{num_iterations}]  loss={loss.item():.6f}"
                   f"  γ={gamma:.4f}  PSNR={current_psnr:.4f} dB")
+            
+            # MEMORY FIX: Flush eval tensors to prepare for next training loop
+            del current_denoised_pad, current_denoised
+            gc.collect()
+            torch.cuda.empty_cache()
 
     # ── Inference: one clean forward pass ───────────────────────────────
     model.eval()
