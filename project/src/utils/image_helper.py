@@ -48,3 +48,37 @@ def unpad(tensor: torch.Tensor, pad_hw: Tuple[int, int]) -> torch.Tensor:
     pad_h, pad_w = pad_hw
     _, _, H, W = tensor.shape
     return tensor[:, :, :H - pad_h if pad_h else H, :W - pad_w if pad_w else W]
+
+def get_tiled_prediction(model: torch.nn.Module, img: torch.Tensor, tile_size: int = 1024) -> torch.Tensor:
+    """
+    Processes a massive image in smaller tiles to prevent VRAM explosion during inference.
+    """
+    b, c, h, w = img.shape
+    out = torch.zeros_like(img)
+    
+    for y in range(0, h, tile_size):
+        for x in range(0, w, tile_size):
+            # Calculate tile boundaries
+            y_end = min(y + tile_size, h)
+            x_end = min(x + tile_size, w)
+            
+            # Extract the tile
+            tile = img[..., y:y_end, x:x_end]
+            
+            # Pad the tile to a multiple of 32 for the UNet
+            # (Assuming pad_to_multiple and unpad are imported in p2n.py)
+            tile_pad, pad_hw = pad_to_multiple(tile, 32)
+            
+            # Forward pass only on the small tile
+            with torch.no_grad():
+                pred_pad = model(tile_pad)
+                
+            # Unpad and slot back into the final output tensor
+            pred = unpad(pred_pad, pad_hw)
+            out[..., y:y_end, x:x_end] = pred
+            
+            # Keep VRAM clean between tiles
+            del tile, tile_pad, pred_pad, pred
+            torch.cuda.empty_cache()
+            
+    return out

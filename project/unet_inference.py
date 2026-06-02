@@ -3,7 +3,7 @@ import re
 
 # Custom Modules
 from src.unet import Noise2NoiseUNet
-from src.utils.image_helper import compute_psnr, load_image_tensor, save_tensor_image, pad_to_multiple, unpad
+from src.utils.image_helper import compute_psnr, load_image_tensor, save_tensor_image, pad_to_multiple, unpad, get_tiled_prediction
 from src.utils.data_helper import find_cc_pairs, find_polyu_pairs, find_sidd_pairs
 
 import settings
@@ -52,8 +52,7 @@ def main():
             noisy_pad, pad_hw = pad_to_multiple(noisy, 32)
             
             # Pure Inference Pass
-            with torch.no_grad():
-                denoised_pad = model(noisy_pad)
+            denoised_pad = get_tiled_prediction(model, noisy_pad, tile_size=1024).clamp(settings.MIN_I, settings.MAX_I)
                 
             # Restore original dimensions
             denoised = unpad(denoised_pad, pad_hw)

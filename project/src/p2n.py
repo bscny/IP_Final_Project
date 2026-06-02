@@ -5,7 +5,7 @@ from typing import Tuple, List
 import gc
 
 # Custom Modules
-from src.utils.image_helper import compute_psnr, unpad
+from src.utils.image_helper import compute_psnr, unpad, get_tiled_prediction
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Denoised Consistency Supervision (DCS)
@@ -162,16 +162,14 @@ def train_p2n(
             loss_history.append(loss.item())
             
             # MEMORY FIX: Flush training tensors from VRAM
-            # ==========================================
             del pred_pos, pred_neg, y_p, y_n, loss
             torch.cuda.empty_cache()
 
             # Evaluate PSNR for this step
+            # Inference on the FULL image for accurate PSNR logging
+            # Get intermediate prediction
             model.eval()
-            with torch.no_grad():
-                # Inference on the FULL image for accurate PSNR logging
-                # Get intermediate prediction
-                current_denoised_pad = model(dirty_img)
+            current_denoised_pad = get_tiled_prediction(model, dirty_img, tile_size=1024).clamp(min_i, max_i)
             
             # Unpad to match the ground truth dimensions
             current_denoised = unpad(current_denoised_pad, pad_hw)
@@ -190,7 +188,6 @@ def train_p2n(
 
     # ── Inference: one clean forward pass ───────────────────────────────
     model.eval()
-    with torch.no_grad():
-        denoised = model(dirty_img).clamp(min_i, max_i)
+    denoised_pad = get_tiled_prediction(model, dirty_img, tile_size=1024).clamp(min_i, max_i)
 
-    return denoised, step_history, loss_history, psnr_history
+    return denoised_pad, step_history, loss_history, psnr_history
