@@ -180,7 +180,7 @@ def train_p2n(
             current_psnr = compute_psnr(current_denoised, gt_img, min_i, max_i)
             psnr_history.append(current_psnr)
 
-            print(f"[iter {i:4d}/{num_iterations}]  loss={loss.item():.6f}"
+            print(f"[iter {i:4d}/{num_iterations}]  loss={loss_history[-1]:.6f}"
                   f"  γ={gamma:.4f}  PSNR={current_psnr:.4f} dB")
             
             # MEMORY FIX: Flush eval tensors to prepare for next training loop
