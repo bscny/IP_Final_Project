@@ -62,12 +62,17 @@ def main():
             # Pad for UNet (Height and Width must be divisible by 32)
             noisy_pad, pad_hw = pad_to_multiple(noisy, 32)
 
+            # Initialize Base Model
+            base_model = Noise2NoiseUNet().to(settings.DEVICE)
+            base_model.load_state_dict(pretrained_state, strict=True)
+
             # Initialize Model (Fresh for each image)
             model = Noise2NoiseUNet().to(settings.DEVICE)
             model.load_state_dict(pretrained_state, strict=True)
 
             # Fine-Tune using P2N
             denoised_pad, steps, losses, psnrs = train_p2n(
+                base_model=base_model,
                 model=model,
                 dirty_img=noisy_pad,
                 gt_img=gt,
@@ -131,6 +136,7 @@ def main():
         # Graph to wandb
         for step, mean_loss, mean_psnr in zip(recorded_steps, mean_losses, mean_psnrs):
             wandb.log({
+                f"general_iteration": step,
                 f"{ds_name}/iteration": step,
                 f"{ds_name}/mean_loss": mean_loss,
                 f"{ds_name}/mean_psnr": mean_psnr
