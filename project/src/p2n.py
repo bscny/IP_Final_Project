@@ -2,9 +2,10 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from typing import Tuple, List
+import gc
 
 # Custom Modules
-from src.utils.image_helper import compute_psnr, unpad
+from src.utils.image_helper import compute_psnr, unpad, get_tiled_prediction
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Denoised Consistency Supervision (DCS)
@@ -29,38 +30,29 @@ def p2n_loss(pred_pos: torch.Tensor, pred_neg: torch.Tensor, gamma: float, eps: 
 # Renoised Data Construction (RDC)
 # ─────────────────────────────────────────────────────────────────────────────
 def build_renoised_pair(
-        model: nn.Module, noisy_img: torch.Tensor, sigma: float, min_i: int, max_i: int
+        x_hat: torch.Tensor, n_hat: torch.Tensor, sigma: float, min_i: int, max_i: int
     ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Constructs the positive/negative noisy image pair — equations (3) - (9).
 
     Step-by-step:
-
-    1. One forward pass gives the predicted clean image x̂ = F_θ(y).
-    2. Predicted noise:  n̂ = y - x̂                            eq. (4)
-    3. Sample two *independent* positive scale factors
+    1. Get the base denoised image x̂ and noise n̂ from the pre-trained model.
+    2. Sample two *independent* positive scale factors
        σ_p, σ_n ~ N(1, σ)  (same shape as the image tensor).   eq. (5)
        Drawing them *per-pixel* (multi-scale) means the network
        sees a wide variety of noise magnitudes every iteration —
        crucial for learning to be noise-agnostic.
-    4. Positive noisy image:  y_p = x̂ + σ_n · n̂              eq. (7)
-    5. Negative noisy image:  y_n = x̂ − σ_p · n̂              eq. (9)
+    3. Positive noisy image:  y_p = x̂ + σ_n · n̂              eq. (7)
+    4. Negative noisy image:  y_n = x̂ − σ_p · n̂              eq. (9)
     
     Args:
-        model:     Pre-trained Noise2NoiseUNet.
-        noisy_img: Noisy input, shape (1, C, H, W), float32 ∈ [min_i, max_i].
+        x_hat:     Base denoised image, shape (1, C, H, W), float32 ∈ [min_i, max_i]
+        n_hat:     Predicted noise, shape (1, C, H, W), float32.
         sigma:     Variance of the sampled Normal Distribution
 
     Returns:
         two noisy images
     """
-    # Don't track gradients for inferencing
-    model.eval()
-    with torch.no_grad():
-        x_hat = model(noisy_img)
-
-    n_hat = noisy_img - x_hat
-
     # σ_p, σ_n sampled independently from N(1, σ), same spatial size
     # Using `torch.randn_like` gives ~ N(0,1); scaling gives N(1, σ).
     sigma_p = 1.0 + sigma * torch.randn_like(n_hat)   # σ_p ~ N(1, σ)
@@ -70,8 +62,8 @@ def build_renoised_pair(
     y_n = x_hat - sigma_p * n_hat              # negative noisy image, eq. (9)
 
     # Clamp to valid pixel range so the network inputs stay well-behaved.
-    y_p = y_p.clamp(min_i, max_i)  # Default to [0, 255]
-    y_n = y_n.clamp(min_i, max_i)  # Default to [0, 255]
+    y_p = y_p.clamp(min_i, max_i)  # Default to [0, 1]
+    y_n = y_n.clamp(min_i, max_i)  # Default to [0, 1]
 
     return y_p, y_n
 
@@ -81,6 +73,7 @@ def build_renoised_pair(
 # ─────────────────────────────────────────────────────────────────────────────
 def train_p2n(
     model: nn.Module,
+    x_hat: torch.Tensor,
     dirty_img: torch.Tensor,
     gt_img: torch.Tensor,
     pad_hw: Tuple[int, int],
@@ -98,7 +91,7 @@ def train_p2n(
 
     Args:
         model          : Pre-trained Noise2NoiseUNet.
-        dirty_img      : Noisy input, shape (1, C, H, W), float32 ∈ [min_i, max_i].
+        dirty_img      : Padded noisy input (to multiple of 32), shape (1, C, H, W), float32 ∈ [min_i, max_i].
         num_iterations : The paper converges in ~100 iterations on SIDD
         lr             : AdamW learning rate (paper uses 1e-4).
         sigma          : Spread of the scale-parameter distribution N(1, σ).
@@ -116,15 +109,18 @@ def train_p2n(
         loss_history : The loss according to log_every
         psnr_history : The psnr according to log_every
     """
-    model.train()
     optimizer = optim.AdamW(model.parameters(), lr=lr)
 
     step_history = []
     loss_history = []
     psnr_history = []
     
-    _, _, h, w = dirty_img.shape
-
+    # Get the predicted noise from the base model
+    n_hat = dirty_img - x_hat
+    
+    _, _, h, w = x_hat.shape
+    
+    # Now, we use the n_hat and x_hat to construct the renoised pairs inside the training loop.
     for i in range(1, num_iterations + 1):
         # Linear gamma schedule
         # γ decreases linearly from `gamma_start` (2.0) → `gamma_end` (1.5)
@@ -135,17 +131,18 @@ def train_p2n(
         current_crop_h = min(crop_size, h)
         current_crop_w = min(crop_size, w)
         
-        # Randomly crop a patch from the dirty image for this iteration
+        # Randomly crop a patch from the base denoised image for this iteration
         top = torch.randint(0, h - current_crop_h + 1, (1,)).item()
         left = torch.randint(0, w - current_crop_w + 1, (1,)).item()
         
         # Extract the patch
-        dirty_crop = dirty_img[..., top:top+current_crop_h, left:left+current_crop_w]
+        x_hat_crop = x_hat[..., top:top+current_crop_h, left:left+current_crop_w]
+        n_hat_crop = n_hat[..., top:top+current_crop_h, left:left+current_crop_w]
 
         # Renoised Data Construction (RDC)
-        y_p, y_n = build_renoised_pair(model, dirty_crop, sigma=sigma, min_i=min_i, max_i=max_i)
+        y_p, y_n = build_renoised_pair(x_hat_crop, n_hat_crop, sigma=sigma, min_i=min_i, max_i=max_i)
 
-        # Switch back to training mode for the DCS forward passes
+        # Training starts for the DCS forward passes
         model.train()
         optimizer.zero_grad()
 
@@ -163,13 +160,16 @@ def train_p2n(
         if i % log_every == 0 or i == 1:
             step_history.append(i)
             loss_history.append(loss.item())
+            
+            # MEMORY FIX: Flush training tensors from VRAM
+            del pred_pos, pred_neg, y_p, y_n, loss
+            torch.cuda.empty_cache()
 
             # Evaluate PSNR for this step
+            # Inference on the FULL image for accurate PSNR logging
+            # Get intermediate prediction
             model.eval()
-            with torch.no_grad():
-                # Inference on the FULL image for accurate PSNR logging
-                # Get intermediate prediction
-                current_denoised_pad = model(dirty_img)
+            current_denoised_pad = get_tiled_prediction(model, dirty_img, tile_size=1024).clamp(min_i, max_i)
             
             # Unpad to match the ground truth dimensions
             current_denoised = unpad(current_denoised_pad, pad_hw)
@@ -178,12 +178,16 @@ def train_p2n(
             current_psnr = compute_psnr(current_denoised, gt_img, min_i, max_i)
             psnr_history.append(current_psnr)
 
-            print(f"[iter {i:4d}/{num_iterations}]  loss={loss.item():.6f}"
+            print(f"[iter {i:4d}/{num_iterations}]  loss={loss_history[-1]:.6f}"
                   f"  γ={gamma:.4f}  PSNR={current_psnr:.4f} dB")
+            
+            # MEMORY FIX: Flush eval tensors to prepare for next training loop
+            del current_denoised_pad, current_denoised
+            gc.collect()
+            torch.cuda.empty_cache()
 
     # ── Inference: one clean forward pass ───────────────────────────────
     model.eval()
-    with torch.no_grad():
-        denoised = model(dirty_img).clamp(min_i, max_i)
+    denoised_pad = get_tiled_prediction(model, dirty_img, tile_size=1024).clamp(min_i, max_i)
 
-    return denoised, step_history, loss_history, psnr_history
+    return denoised_pad, step_history, loss_history, psnr_history

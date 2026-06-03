@@ -62,6 +62,19 @@ def main():
             # Pad for UNet (Height and Width must be divisible by 32)
             noisy_pad, pad_hw = pad_to_multiple(noisy, 32)
 
+            # Initialize Base Model
+            base_model = Noise2NoiseUNet().to(settings.DEVICE)
+            base_model.load_state_dict(pretrained_state, strict=True)
+            
+            # Get the predicted denoise image from the base model
+            base_model.eval()
+            with torch.no_grad():
+                x_hat = base_model(noisy_pad)
+            
+            # Delete base_model to free VRAM
+            del base_model
+            torch.cuda.empty_cache()
+
             # Initialize Model (Fresh for each image)
             model = Noise2NoiseUNet().to(settings.DEVICE)
             model.load_state_dict(pretrained_state, strict=True)
@@ -69,6 +82,7 @@ def main():
             # Fine-Tune using P2N
             denoised_pad, steps, losses, psnrs = train_p2n(
                 model=model,
+                x_hat=x_hat,
                 dirty_img=noisy_pad,
                 gt_img=gt,
                 pad_hw=pad_hw,
@@ -131,6 +145,7 @@ def main():
         # Graph to wandb
         for step, mean_loss, mean_psnr in zip(recorded_steps, mean_losses, mean_psnrs):
             wandb.log({
+                f"general_iteration": step,
                 f"{ds_name}/iteration": step,
                 f"{ds_name}/mean_loss": mean_loss,
                 f"{ds_name}/mean_psnr": mean_psnr
