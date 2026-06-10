@@ -2,7 +2,7 @@
 
 **IMPORTANT**: This is the unofficial implementation of the CVPR 2025 accepted paper [Positive2Negative: Breaking the Information-Lossy Barrier in Self-Supervised Single Image Denoising](https://openaccess.thecvf.com/content/CVPR2025/papers/Li_Positive2Negative_Breaking_the_Information-Lossy_Barrier_in_Self-Supervised_Single_Image_Denoising_CVPR_2025_paper.pdf), we selected this paper as our 2026 spring Image Processing final project at Department of Computer science, NCCU
 
-[[Final Presentation Slide](docs/Final_Slide)] [[Final Report](docs/Final_Reoort.pdf)]
+[[Final Presentation Slide](docs/Final_Slide.pdf)] [[Final Report](docs/Final_Reoort.pdf)]
 
 **Note**: For the trained models in our experiment, Please see the below google drive link, we also provided the trained stats (e.g. loss curve)
 
