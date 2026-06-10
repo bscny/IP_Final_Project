@@ -24,6 +24,15 @@ In this section, we introduce you what we have done on this project briefly:
 5. We analyzed the possible reasons behind the fail
 6. We made the final slides and report to demonstrate our results, findings, and conclusions. The following section provides a quick view of it
 
+To view our completely results:
+1. switch to branch `feat-finetune_and_inference`
+2. go to the `project/result` folder
+3. `inference_images` contains the inference result from the baseline denoiser
+4. `finetune_images` contains the only 1 model result of P2N training
+5. `finetune_images_ver2` contains the base-target dual model approach's result
+6. `finetune_images_ver3` also contains the base-target dual model approach's result but we try training from scratch with P2N
+7. `finetune_images_ver4` is just testing, feel free to ignore
+
 ## Take a Glance at the Result
 
 We first trained the base denoiser
