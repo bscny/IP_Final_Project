@@ -2,7 +2,7 @@
 
 **IMPORTANT**: This is the unofficial implementation of the CVPR 2025 accepted paper [Positive2Negative: Breaking the Information-Lossy Barrier in Self-Supervised Single Image Denoising](https://openaccess.thecvf.com/content/CVPR2025/papers/Li_Positive2Negative_Breaking_the_Information-Lossy_Barrier_in_Self-Supervised_Single_Image_Denoising_CVPR_2025_paper.pdf), we selected this paper as our 2026 spring Image Processing final project at Department of Computer science, NCCU
 
-[[Final Presentation Slide](docs/Final_Slide.pdf)] [[Final Report](docs/Final_Reoort.pdf)]
+[[Final Presentation Slide](docs/Final_Slide.pdf) ([canva version](https://www.canva.com/design/DAHLDgymCfs/U95DF4bQAvnyfoeAaDFd0Q/edit))] [[Final Report](docs/Final_Reoort.pdf)]
 
 **Note**: For the trained models in our experiment, Please see the below google drive link, we also provided the trained stats (e.g. loss curve)
 
@@ -10,7 +10,7 @@
 
 - [Introduction](#introduction)
 - [Take a Glance at the Result](#take-a-glance-at-the-result)
-- [Trained Models and Stats](#trained-models-and-stats)
+- [Instruction Steps](#instruction-steps)
 - [File Structure](#file-structure)
 - [Team Members](#team-members)
 
@@ -56,7 +56,15 @@ Ground Truth:
 
 ![gt](/docs/gt.png)
 
-## Trained Models and Stats
+## Instruction Steps
+
+1. Follow `DATA_README.md` to gather all the datasets
+2. Adjust the hyper-params in `settings.py`
+3. Follow `/project/unet_pretrain/README.md` to get the base denoiser (Noise-2-Noise U-Net)
+4. Simply `py unet_inference.py` to get the inference result of the baseline model
+5. Adjust the hyper-params in `settings.py`
+6. Simply `py finetune.py` to get the run P2N training loop on a single image
+7. View the result in `result` folder
 
 ## File Structure
 
